@@ -150,4 +150,92 @@ describe('Express Integration', function () {
     req.write(body)
     req.end()
   })
+
+  it('should not crash on malformed request that causes two errors to be emitted by busboy', function (done) {
+    var upload = multer()
+
+    app.post('/upload2', upload.single('file'), function (req, res) {
+      res.status(500).end('Request should not be processed')
+    })
+
+    app.use(function (err, req, res, next) {
+      assert.strictEqual(err.message, 'Malformed part header')
+      res.status(200).end('Correct error')
+    })
+
+    var boundary = 'AaB03x'
+    // this payload causes two errors to be emitted by busboy: `Malformed part header` and `Unexpected end of form`
+    var body = [
+      '--' + boundary,
+      'Content-Disposition: form-data; name="file"; filename="test.txt"',
+      'Content-Type: text/plain',
+      '',
+      '--' + boundary + '--',
+      ''
+    ].join('\r\n')
+    var options = {
+      hostname: 'localhost',
+      port,
+      path: '/upload2',
+      method: 'POST',
+      headers: {
+        'content-type': 'multipart/form-data; boundary=' + boundary,
+        'content-length': body.length
+      }
+    }
+
+    var req = http.request(options, (res) => {
+      assert.strictEqual(res.statusCode, 200)
+      done()
+    })
+
+    req.on('error', (err) => {
+      done(err)
+    })
+
+    req.write(body)
+    req.end()
+  })
+
+  it('should not crash on malformed multipart body with bad boundary', function (done) {
+    var upload = multer()
+
+    app.post('/upload3', upload.single('image'), function (req, res) {
+      res.status(500).end('Request should not be processed')
+    })
+
+    app.use(function (err, req, res, next) {
+      assert.strictEqual(err.message, 'Unexpected end of form')
+      res.status(200).end('Correct error')
+    })
+
+    var boundary = '----FormBoundary'
+    var body = [
+      '------FormBoundary',
+      'Content-Disposition: form-data; name="image"; filename=""',
+      'Content-Type: application/octet-stream',
+      '',
+      '', // empty content
+      '------FormBoundar' // intentionally malformed final boundary (missing 'y')
+    ].join('\r\n')
+
+    var options = {
+      hostname: 'localhost',
+      port,
+      path: '/upload3',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'multipart/form-data; boundary=' + boundary,
+        'Content-Length': Buffer.byteLength(body)
+      }
+    }
+
+    var req = http.request(options, (res) => {
+      assert.strictEqual(res.statusCode, 200)
+      done()
+    })
+
+    req.write(body)
+    req.end()
+  })
 })
